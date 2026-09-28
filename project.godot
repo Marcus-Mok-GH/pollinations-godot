@@ -1,0 +1,15 @@
+config_version=5
+
+[application]
+
+config/name="Pollinations for Godot"
+run/main_scene="res://example/example.tscn"
+config/features=PackedStringArray("4.4")
+
+[autoload]
+
+Pollinations="*res://addons/pollinations/autoload/pollinations.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/pollinations/plugin.cfg")
