@@ -16,12 +16,21 @@ func _run_tests() -> void:
 	await _models_check("text")
 	await _models_check("image")
 	await _models_check("audio")
-	await _text_check()
 	_auth_guard_check()
-	await _image_no_key_check()
 	_wav_check()
 	_png_check()
+	if _has_key():
+		await _live_text_check()
+		await _live_image_check()
+		await _live_speech_check()
+	else:
+		await _text_check()
+		await _image_no_key_check()
 	print("RESULT: %s (%d failures)" % ["PASS" if failures == 0 else "FAIL", failures])
+
+func _has_key() -> bool:
+	var autoload := get_node_or_null("/root/Pollinations")
+	return autoload != null and autoload.resolve_key() != ""
 
 func check(condition: bool, name: String) -> void:
 	print("[%s] %s" % ["ok" if condition else "FAIL", name])
@@ -31,7 +40,10 @@ func check(condition: bool, name: String) -> void:
 func _autoload_check() -> void:
 	var autoload := get_node_or_null("/root/Pollinations")
 	check(autoload != null, "autoload Pollinations registered")
-	check(autoload != null and autoload.resolve_key() == "", "resolve_key empty without credentials")
+	if not _has_key():
+		check(autoload != null and autoload.resolve_key() == "", "resolve_key empty without credentials")
+	else:
+		check(true, "resolve_key finds a credential from the environment")
 
 func _models_check(modality: String) -> void:
 	var models: Array = await get_node("/root/Pollinations").fetch_models(modality)
@@ -126,4 +138,40 @@ func _png_check() -> void:
 	check(texture != null and texture.get_width() == 16, "image decode path handles PNG bytes")
 	var round_trip: Texture2D = node._decode_texture(Marshalls.base64_to_raw(Marshalls.raw_to_base64(png)))
 	check(round_trip != null and round_trip.get_height() == 16, "b64_json base64 round trip decodes")
+	node.queue_free()
+
+func _live_text_check() -> void:
+	var node := PollinationsText.new()
+	add_child(node)
+	var text: String = await node.generate("Answer with exactly two words: pollen works")
+	check(text != "", "live text generation via /v1/chat/completions (%d chars)" % text.length())
+	print("  text: " + text.substr(0, 120).replace("\n", " "))
+	node.queue_free()
+
+func _live_image_check() -> void:
+	var node := PollinationsImage.new()
+	add_child(node)
+	var texture: Texture2D = await node.generate("A tiny pixel-art garden on an alien planet", 512, 512)
+	var detail := "null"
+	if texture != null:
+		# The model may return its native size instead of the requested one.
+		detail = "%dx%d decoded from the b64_json response" % [texture.get_width(), texture.get_height()]
+	check(texture != null, "live image generation via /v1/images/generations (%s)" % detail)
+	node.queue_free()
+
+func _live_speech_check() -> void:
+	var node := PollinationsSpeech.new()
+	add_child(node)
+	var speech_failures: Array = []
+	node.failed.connect(func(message): speech_failures.append(message))
+	var stream: AudioStream = await node.generate("Hello from the Pollinations Godot add-on.")
+	if stream == null and speech_failures.size() > 0 and str(speech_failures[0]).begins_with("Insufficient balance"):
+		print("[skip] live speech generation (account balance does not cover audio)")
+		node.queue_free()
+		return
+	var wav := stream as AudioStreamWAV
+	var detail := "null"
+	if wav != null:
+		detail = "%d Hz %s %d bytes (%.1f s)" % [wav.mix_rate, "stereo" if wav.stereo else "mono", wav.data.size(), float(wav.data.size()) / float(wav.mix_rate) / (4 if wav.stereo else 2)]
+	check(stream != null and wav != null, "live speech generation via /v1/audio/speech (RIFF parsed: %s)" % detail)
 	node.queue_free()
