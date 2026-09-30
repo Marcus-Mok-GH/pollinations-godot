@@ -44,7 +44,7 @@ func authorize(app_key: String) -> Dictionary:
 	while Time.get_unix_time_from_system() < expires_at:
 		await get_tree().create_timer(float(interval)).timeout
 		var token := await _post_json(http, AUTH_URL + "/api/device/token", {"client_id": app_key, "device_code": device_code})
-		if token.get("ok", false) == false:
+		if token.get("ok", false) == false and (token.get("json", {}) as Dictionary).is_empty():
 			http.queue_free()
 			denied.emit(str(token.get("error", "token_request_failed")))
 			return {"granted": false, "error": str(token.get("error", "token_request_failed"))}
@@ -73,9 +73,9 @@ func _post_json(http: HTTPRequest, url: String, body: Dictionary) -> Dictionary:
 	if err != OK:
 		return {"ok": false, "error": "request_failed"}
 	var result: Array = await http.request_completed
-	if result[0] != HTTPRequest.RESULT_SUCCESS or result[1] < 200 or result[1] >= 300:
-		return {"ok": false, "error": "http_%d" % result[1]}
 	var parsed: Variant = JSON.parse_string(result[3].get_string_from_utf8())
 	if parsed is Dictionary:
-		return {"ok": true, "json": parsed}
+		return {"ok": result[0] == HTTPRequest.RESULT_SUCCESS and result[1] >= 200 and result[1] < 300, "json": parsed}
+	if result[0] != HTTPRequest.RESULT_SUCCESS or result[1] < 200 or result[1] >= 300:
+		return {"ok": false, "error": "http_%d" % result[1]}
 	return {"ok": false, "error": "bad_response"}
